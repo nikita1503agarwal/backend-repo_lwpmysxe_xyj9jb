@@ -12,7 +12,8 @@ Model name is converted to lowercase for the collection name:
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 
 # Example schemas (replace with your own):
 
@@ -37,6 +38,19 @@ class Product(BaseModel):
     price: float = Field(..., ge=0, description="Price in dollars")
     category: str = Field(..., description="Product category")
     in_stock: bool = Field(True, description="Whether product is in stock")
+
+# Calendar / Reminder app schemas
+
+class Event(BaseModel):
+    """Calendar events with optional reminder"""
+    title: str = Field(..., description="Event title")
+    description: Optional[str] = Field(None, description="Event details")
+    start: datetime = Field(..., description="Event start datetime (ISO)")
+    end: Optional[datetime] = Field(None, description="Event end datetime (ISO)")
+    color: str = Field('#60a5fa', description="Tailwind-compatible hex color for event tag")
+    reminder_minutes: Optional[int] = Field(15, ge=0, le=10080, description="Minutes before start to notify")
+    all_day: bool = Field(False, description="If true, treat as all-day event")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Optional tags")
 
 # Add your own schemas here:
 # --------------------------------------------------

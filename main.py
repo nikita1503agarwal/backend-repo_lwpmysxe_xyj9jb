@@ -1,8 +1,15 @@
 import os
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
-app = FastAPI()
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from database import db, create_document, get_documents
+from schemas import Event
+
+app = FastAPI(title="Colorful Calendar API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,7 +21,7 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "Calendar backend running"}
 
 @app.get("/api/hello")
 def hello():
@@ -31,38 +38,80 @@ def test_database():
         "connection_status": "Not Connected",
         "collections": []
     }
-    
+
     try:
-        # Try to import database module
-        from database import db
-        
         if db is not None:
             response["database"] = "✅ Available"
             response["database_url"] = "✅ Configured"
             response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
             response["connection_status"] = "Connected"
-            
-            # Try to list collections to verify connectivity
             try:
                 collections = db.list_collection_names()
-                response["collections"] = collections[:10]  # Show first 10 collections
+                response["collections"] = collections[:10]
                 response["database"] = "✅ Connected & Working"
             except Exception as e:
                 response["database"] = f"⚠️  Connected but Error: {str(e)[:50]}"
         else:
             response["database"] = "⚠️  Available but not initialized"
-            
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
+
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
-    
-    # Check environment variables
+
     import os
     response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
-    
+
     return response
+
+# --------- Calendar Endpoints ---------
+
+class EventCreate(Event):
+    pass
+
+class EventOut(Event):
+    id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+@app.post("/api/events", response_model=dict)
+def create_event(event: EventCreate):
+    try:
+        event_id = create_document("event", event)
+        return {"id": event_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/events", response_model=List[EventOut])
+def list_events(start: Optional[datetime] = None, end: Optional[datetime] = None):
+    try:
+        filter_q = {}
+        if start and end:
+            filter_q = {"start": {"$gte": start}, "end": {"$lte": end}}
+        docs = get_documents("event", filter_q)
+        # Convert ObjectId to string and map fields
+        for d in docs:
+            if "_id" in d:
+                d["id"] = str(d.pop("_id"))
+        return docs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/events/today", response_model=List[EventOut])
+def list_today_events():
+    try:
+        now = datetime.now(timezone.utc)
+        start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+        docs = get_documents("event", {"start": {"$gte": start, "$lt": end}})
+        for d in docs:
+            if "_id" in d:
+                d["id"] = str(d.pop("_id"))
+        return docs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
